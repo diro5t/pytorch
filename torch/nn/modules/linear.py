@@ -15,7 +15,7 @@ __all__ = [
     'Identity',
     'LazyLinear',
     'Linear',
-    'Quadric,
+    'Quadric',
 ]
 
 
