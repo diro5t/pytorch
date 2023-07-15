@@ -265,7 +265,7 @@ class LazyLinear(LazyModuleMixin, Linear):
 # TODO: PartialLinear - maybe in sparse?
 
 class Quadric(nn.Module):
-        r"""Applies a quadric transformation to the incoming data: :math:`y = x^2A^T + xB^T + b`
+    r"""Applies a quadric transformation to the incoming data: :math:`y = x^2A^T + xB^T + b`
 
     This module supports :ref:`TensorFloat32<tf32_on_ampere>`.
 
