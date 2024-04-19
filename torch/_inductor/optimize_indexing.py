@@ -9,11 +9,11 @@ from .utils import dominated_nodes
 
 
 def val_expressable_in_32_bits(val):
-    if hasattr(val, "is_Boolean") and val.is_Boolean:
+    if getattr(val, "is_Boolean", False):
         return True
 
     if isinstance(val, sympy.Expr):
-        assert val.is_constant()
+        assert val.is_number
         if val.is_Integer or val.is_Boolean:
             val = int(val)
         else:
@@ -54,14 +54,11 @@ def try_to_reduce_precision(node, bounds, indirect_vars, indices, replacement_va
         if dominated.target in ["store", "output"]:
             continue
 
-        if "set_indirect" in dominated.target:
+        if isinstance(dominated.target, str) and "set_indirect" in dominated.target:
             idx = int(dominated.target[len("set_indirect") :])
             indirect_var = indirect_vars[idx]
 
             # We check that we can compute all the indices it's involved in with int32
-            # TODO The current implementation does not handle the case were an indexing
-            #      has two indirect indexing variables
-            #      This can be fixed using the function bound_sympy
             for index, expr in indices.items():
                 if indirect_var in expr.free_symbols:
                     index_val = replacement_vals[index]
@@ -74,7 +71,7 @@ def try_to_reduce_precision(node, bounds, indirect_vars, indices, replacement_va
                     # TODO - not sure if we should be doing int/float casts while tracing,
                     # might interfere with sympy.
 
-                    index_val_int = ValueRanges(
+                    index_val_int = ValueRanges[sympy.Expr](
                         int(index_val.lower), int(index_val.upper)
                     )
                     if not range_expressable_in_32_bits(index_val_int):

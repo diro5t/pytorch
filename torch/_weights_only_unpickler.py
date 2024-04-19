@@ -7,6 +7,7 @@
 # - torch types (Storage, dtypes, Tensor, `torch.Size`),
 # - `torch._utils._rebuild` functions.
 # - `torch.nn.Parameter`
+# - `collections.Counter`
 # - `collections.OrderedDict`
 
 # Based of https://github.com/python/cpython/blob/main/Lib/pickle.py
@@ -17,7 +18,7 @@
 # weights = torch.load(buf, weights_only = True)
 
 import functools as _functools
-from collections import OrderedDict
+from collections import Counter, OrderedDict
 from pickle import (
     APPEND,
     APPENDS,
@@ -69,6 +70,7 @@ import torch
 def _get_allowed_globals():
     rc: Dict[str, Any] = {
         "collections.OrderedDict": OrderedDict,
+        "collections.Counter": Counter,
         "torch.nn.parameter.Parameter": torch.nn.Parameter,
         "torch.serialization._get_layout": torch.serialization._get_layout,
         "torch.Size": torch.Size,
@@ -79,6 +81,10 @@ def _get_allowed_globals():
         torch.complex32,
         torch.complex64,
         torch.complex128,
+        torch.float8_e5m2,
+        torch.float8_e4m3fn,
+        torch.float8_e5m2fnuz,
+        torch.float8_e4m3fnuz,
         torch.float16,
         torch.float32,
         torch.float64,
@@ -93,14 +99,22 @@ def _get_allowed_globals():
         rc[f"{tt.__module__}.{tt.__name__}"] = tt
     # Storage classes
     for ts in torch._storage_classes:
-        rc[f"{ts.__module__}.{ts.__name__}"] = ts
+        if ts not in (torch.storage.TypedStorage, torch.storage.UntypedStorage):
+            # Wrap legacy storage types in a dummy class
+            rc[f"{ts.__module__}.{ts.__name__}"] = torch.serialization.StorageType(
+                ts.__name__
+            )
+        else:
+            rc[f"{ts.__module__}.{ts.__name__}"] = ts
     # Rebuild functions
     for f in [
         torch._utils._rebuild_parameter,
         torch._utils._rebuild_tensor,
         torch._utils._rebuild_tensor_v2,
+        torch._utils._rebuild_tensor_v3,
         torch._utils._rebuild_sparse_tensor,
         torch._utils._rebuild_meta_tensor_no_storage,
+        torch._utils._rebuild_nested_tensor,
     ]:
         rc[f"torch._utils.{f.__name__}"] = f
 

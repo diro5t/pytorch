@@ -195,7 +195,7 @@ void MPSProfiler::initialize() {
   }
 }
 
-void MPSProfiler::StartTrace(const string& mode, bool waitUntilCompleted) {
+void MPSProfiler::StartTrace(const std::string& mode, bool waitUntilCompleted) {
   TORCH_CHECK(m_profile_options == ProfileOptions::OPTIONS_NONE, "Tracing Signposts is already enabled ");
 
   std::stringstream ss(mode);
@@ -504,7 +504,7 @@ void MPSProfiler::logOperationsProfilingStats(std::FILE* f) const {
                opInfo->runCount,
                fmt::format("{:.3f}", opInfo->totalSchedulingTime / double(opInfo->runCount)),
                fmt::format("{:.3f}", opInfo->totalGpuTime / double(opInfo->runCount)),
-               fmt::format("{:.3f}", opInfo->totalGpuTime),
+               fmt::format("{:.3f}", opInfo->totalGpuTime.load()),
                opInfo->strKey);
   }
 }
@@ -556,7 +556,7 @@ void MPSProfiler::logCPUFallbackProfilingStats(std::FILE* f) const {
                cpuFbInfo->profileId,
                cpuFbInfo->runCount,
                fmt::format("{:.3f}", cpuFbInfo->totalSchedulingTime / double(cpuFbInfo->runCount)),
-               fmt::format("{:.3f}", cpuFbInfo->totalSchedulingTime),
+               fmt::format("{:.3f}", cpuFbInfo->totalSchedulingTime.load()),
                getIMPSAllocator()->formatSize(cpuFbInfo->totalCopyOverhead),
                cpuFbInfo->opName);
   }
@@ -607,8 +607,8 @@ void MPSProfiler::logCopyProfilingStats(std::FILE* f) const {
           copyStat.kindStr,
           copyStat.totalCount,
           getIMPSAllocator()->formatSize(copyStat.length),
-          fmt::format("{:.3f}", copyStat.totalSchedulingTime),
-          fmt::format("{:.3f}", copyStat.totalGpuTime),
+          fmt::format("{:.3f}", copyStat.totalSchedulingTime.load()),
+          fmt::format("{:.3f}", copyStat.totalGpuTime.load()),
           copyStat.scalarsCount,
           fmt::format("{:.2f} %",
                       copyStat.totalGpuTime > 0.0

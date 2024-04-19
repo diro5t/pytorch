@@ -168,9 +168,9 @@ class TestBinaryUfuncs(TestCase):
             if _numel(l) <= 100 and _numel(r) <= 100:
                 msg = (
                     "Failed to produce expected results! Input lhs tensor was"
-                    " {0}, rhs tensor was {1}, torch result is {2}, and reference result is"
-                    " {3}."
-                ).format(l, r, actual, expected)
+                    f" {l}, rhs tensor was {r}, torch result is {actual}, and reference result is"
+                    f" {expected}."
+                )
             else:
                 msg = None
 
@@ -491,7 +491,7 @@ class TestBinaryUfuncs(TestCase):
         )
 
         def _supported(dtypes):
-            return all((x in supported_dtypes for x in dtypes))
+            return all(x in supported_dtypes for x in dtypes)
 
         # int x int type promotion
         if _supported((torch.int16, torch.int32, torch.int64)):
@@ -985,8 +985,7 @@ class TestBinaryUfuncs(TestCase):
             an, bn = a.float().cpu().numpy(), b.float().cpu().numpy()
 
         for mode, np_ref in ((None, np.true_divide), ("floor", np.floor_divide)):
-            with np.errstate(all="ignore"):
-                expect = np_ref(an, bn)
+            expect = np_ref(an, bn)
             kwargs = dict(rounding_mode=mode) if mode is not None else {}
             with set_default_dtype(torch.double):
                 actual = torch.divide(a, b, **kwargs)
@@ -1063,8 +1062,7 @@ class TestBinaryUfuncs(TestCase):
             ("floor", np.floor_divide),
             ("trunc", lambda a, b: np.trunc(np.true_divide(a, b)).astype(a.dtype)),
         ):
-            with np.errstate(all="ignore"):
-                expect = torch.from_numpy(np_ref(an, bn))
+            expect = torch.from_numpy(np_ref(an, bn))
 
             kwargs = dict(rounding_mode=mode) if mode is not None else {}
             # Contiguous (likely vectorized)
@@ -1347,7 +1345,7 @@ class TestBinaryUfuncs(TestCase):
                 (100, 100), low=1, high=range_high, dtype=dtype, device=device
             )
 
-        exponents = [-2.8, -2, -1, -0.5, 0, 0.5, 1, 2, 3, 4, 3.3]
+        exponents = [-2.8, -2, -1, -0.5, 0, 0.5, 1, 2, 3, 4, 3.3, True, False]
         complex_exponents = [
             -2.5j,
             -1.0j,
@@ -1648,6 +1646,7 @@ class TestBinaryUfuncs(TestCase):
             cpu_out = t.cpu().pow(2)
             self.assertEqual(cpu_out, cuda_out)
 
+    @skipIfTorchDynamo()
     @onlyNativeDeviceTypes
     @dtypes(*all_types_and_complex_and(torch.half))
     def test_complex_scalar_pow_tensor(self, device, dtype):
@@ -2424,21 +2423,21 @@ class TestBinaryUfuncs(TestCase):
         for i in range(750):
             self.assertTrue(
                 torch.isnan(ma[i]),
-                "max(a, b): {}, a: {}, b: {}".format(ma[i], a[i], b[i]),
+                f"max(a, b): {ma[i]}, a: {a[i]}, b: {b[i]}",
             )
             self.assertTrue(
                 torch.isnan(mi[i]),
-                "min(a, b): {}, a: {}, b: {}".format(mi[i], a[i], b[i]),
+                f"min(a, b): {mi[i]}, a: {a[i]}, b: {b[i]}",
             )
 
         for i in range(750, 1000):
             self.assertFalse(
                 torch.isnan(ma[i]),
-                "max(a, b): {}, a: {}, b: {}".format(ma[i], a[i], b[i]),
+                f"max(a, b): {ma[i]}, a: {a[i]}, b: {b[i]}",
             )
             self.assertFalse(
                 torch.isnan(mi[i]),
-                "min(a, b): {}, a: {}, b: {}".format(mi[i], a[i], b[i]),
+                f"min(a, b): {mi[i]}, a: {a[i]}, b: {b[i]}",
             )
 
     @dtypes(
@@ -2803,7 +2802,7 @@ class TestBinaryUfuncs(TestCase):
                         abs(c[0] - d[0]) == abs(b[0])
                     )  # differ by one divisor
 
-    @dtypesIfCPU(torch.bfloat16, torch.float32, torch.float64)
+    @dtypesIfCPU(torch.bfloat16, torch.half, torch.float32, torch.float64)
     @dtypes(torch.float32, torch.float64)
     def test_hypot(self, device, dtype):
         inputs = [
@@ -2826,7 +2825,7 @@ class TestBinaryUfuncs(TestCase):
         ]
         for input in inputs:
             actual = torch.hypot(input[0], input[1])
-            if dtype == torch.bfloat16:
+            if dtype in [torch.bfloat16, torch.half]:
                 expected = torch.sqrt(input[0] * input[0] + input[1] * input[1])
             else:
                 expected = np.hypot(input[0].cpu().numpy(), input[1].cpu().numpy())
@@ -2875,6 +2874,7 @@ class TestBinaryUfuncs(TestCase):
         self.assertEqual(actual, expected, exact_dtype=False)
 
     @onlyNativeDeviceTypes
+    @dtypesIfCPU(torch.float32, torch.float64, torch.float16)
     @dtypes(torch.float32, torch.float64)
     def test_nextafter(self, device, dtype):
         # Test special cases
@@ -2981,17 +2981,17 @@ class TestBinaryUfuncs(TestCase):
     @onlyCPU
     @dtypes(torch.float)
     def test_cdiv(self, device, dtype):
-        self._test_cop(torch.div, lambda x, y: x / y, dtype, device)
+        self._test_cop(torch.div, operator.truediv, dtype, device)
 
     @onlyCPU
     @dtypes(torch.float)
     def test_cremainder(self, device, dtype):
-        self._test_cop(torch.remainder, lambda x, y: x % y, dtype, device)
+        self._test_cop(torch.remainder, operator.mod, dtype, device)
 
     @onlyCPU
     @dtypes(torch.float)
     def test_cmul(self, device, dtype):
-        self._test_cop(torch.mul, lambda x, y: x * y, dtype, device)
+        self._test_cop(torch.mul, operator.mul, dtype, device)
 
     @onlyCPU
     @dtypes(torch.float)
@@ -3410,7 +3410,6 @@ class TestBinaryUfuncs(TestCase):
     @onlyCUDA
     @dtypes(torch.half, torch.bfloat16)
     def test_lerp_lowp(self, device, dtype):
-        ref_dtype = torch.float
         xvals = (0.0, -30000.0)
         yvals = (0.1, -20000.0)
         xs = [torch.full((4,), xval, device=device, dtype=dtype) for xval in xvals]
@@ -3425,7 +3424,7 @@ class TestBinaryUfuncs(TestCase):
             self.assertEqual(actual, expected, atol=0.0, rtol=0.0)
 
     @onlyCPU
-    @dtypes(torch.bfloat16)
+    @dtypes(torch.half, torch.bfloat16)
     def test_lerp_lowp_cpu(self, device, dtype):
         xvals = (0.0, -30000.0)
         yvals = (0.1, -20000.0)
@@ -3489,6 +3488,7 @@ class TestBinaryUfuncs(TestCase):
         )
         _test_helper(a, b)
 
+    @skipIfTorchDynamo()    # complex infs/nans differ under Dynamo/Inductor
     @dtypesIfCUDA(torch.float32, torch.float64, torch.bfloat16)
     @dtypes(torch.float32, torch.float64, torch.bfloat16, torch.complex64, torch.complex128)
     def test_logaddexp(self, device, dtype):
@@ -3806,12 +3806,19 @@ class TestBinaryUfuncs(TestCase):
             )
             self.assertEqual(expected, actual.view(-1), rtol=0, atol=0.02)
 
-            # bfloat16
-            a_bf16 = a.bfloat16()
-            b_bf16 = b.bfloat16()
-            actual_bf16 = a_bf16.atan2(b_bf16)
-            self.assertEqual(actual_bf16, actual.bfloat16())
-            self.assertEqual(expected, actual_bf16.view(-1), exact_dtype=False, rtol=0, atol=0.02)
+            # bfloat16/float16
+            for lowp_dtype in [torch.bfloat16, torch.float16]:
+                if lowp_dtype == torch.bfloat16:
+                    rtol = 0
+                    atol = 0.02
+                else:
+                    rtol = 0
+                    atol = 0.001
+                a_16 = a.to(dtype=lowp_dtype)
+                b_16 = b.to(dtype=lowp_dtype)
+                actual_16 = a_16.atan2(b_16)
+                self.assertEqual(actual_16, actual.to(dtype=lowp_dtype))
+                self.assertEqual(expected, actual_16.view(-1), exact_dtype=False, rtol=rtol, atol=atol)
 
         _test_atan2_with_size((2, 2), device)
         _test_atan2_with_size((3, 3), device)
@@ -3883,9 +3890,15 @@ class TestBinaryUfuncs(TestCase):
         import scipy.integrate
 
         if hasattr(scipy.integrate, "cumulative_trapezoid"):
-            scipy_cumulative_trapezoid = scipy.integrate.cumulative_trapezoid
+            _scipy_cumulative_trapezoid = scipy.integrate.cumulative_trapezoid
         else:  # Older version of SciPy uses a different name
-            scipy_cumulative_trapezoid = scipy.integrate.cumtrapz
+            _scipy_cumulative_trapezoid = scipy.integrate.cumtrapz
+
+        def scipy_cumulative_trapezoid(y, x=None, dx=1.0, axis=-1, initial=None):
+            if y.shape[axis] == 0:
+                return np.empty_like(y)
+            else:
+                return _scipy_cumulative_trapezoid(y, x, dx, axis, initial)
 
         def test_dx(sizes, dim, dx, device):
             t = torch.randn(sizes, device=device)
@@ -4448,10 +4461,8 @@ def generate_not_implemented_tests(cls):
         return test
 
     for op in tensor_binary_ops:
-        test_name = "test_{}_not_implemented".format(op)
-        assert not hasattr(cls, test_name), "{0} already in {1}".format(
-            test_name, cls.__name__
-        )
+        test_name = f"test_{op}_not_implemented"
+        assert not hasattr(cls, test_name), f"{test_name} already in {cls.__name__}"
 
         setattr(cls, test_name, create_test_func(op))
 

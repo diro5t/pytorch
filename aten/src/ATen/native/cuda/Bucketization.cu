@@ -18,7 +18,7 @@
 namespace at::native {
 
 // Implement a numpy like searchsorted and a TF like bucketize function running on cuda
-// See details in ATen/nativate/Bucketization.cpp
+// See details in ATen/native/Bucketization.cpp
 
 namespace {
 
@@ -149,7 +149,7 @@ Tensor& searchsorted_out_cuda(
     return result;
   }
 
-  // for non-contiguous result tensors, we write the output to a contiguous copy so we can later copy back, maintaing the original result tensor
+  // for non-contiguous result tensors, we write the output to a contiguous copy so we can later copy back, maintaining the original result tensor
   Tensor out = result;
   if (!result.is_contiguous()) {
     out = result.contiguous();
@@ -173,6 +173,18 @@ Tensor& searchsorted_out_cuda(
     result.copy_(out);
   }
   return result;
+}
+
+Tensor& searchsorted_out_cuda(
+    const Tensor& sorted_sequence,
+    const Scalar& self,
+    bool out_int32,
+    bool right,
+    const c10::optional<c10::string_view> side_opt,
+    const c10::optional<Tensor>& sorter_opt,
+    Tensor& result) {
+  const Tensor& scalar_tensor = searchsorted_scalar_tensor(self, sorted_sequence.device());
+  return searchsorted_out_cuda(sorted_sequence, scalar_tensor, out_int32, right, side_opt, sorter_opt, result);
 }
 
 Tensor searchsorted_cuda(

@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 import math
 import warnings
 
@@ -94,15 +93,13 @@ class _ConvNd(Module):
         if isinstance(padding, str):
             if padding not in valid_padding_strings:
                 raise ValueError(
-                    "Invalid padding string {!r}, should be one of {}".format(
-                        padding, valid_padding_strings))
+                    f"Invalid padding string {padding!r}, should be one of {valid_padding_strings}")
             if padding == 'same' and any(s != 1 for s in stride):
                 raise ValueError("padding='same' is not supported for strided convolutions")
 
         valid_padding_modes = {'zeros', 'reflect', 'replicate', 'circular'}
         if padding_mode not in valid_padding_modes:
-            raise ValueError("padding_mode must be one of {}, but got padding_mode='{}'".format(
-                valid_padding_modes, padding_mode))
+            raise ValueError(f"padding_mode must be one of {valid_padding_modes}, but got padding_mode='{padding_mode}'")
         self.in_channels = in_channels
         self.out_channels = out_channels
         self.kernel_size = kernel_size
@@ -619,7 +616,7 @@ class _ConvTransposeNd(_ConvNd):
                  padding, dilation, transposed, output_padding,
                  groups, bias, padding_mode, device=None, dtype=None) -> None:
         if padding_mode != 'zeros':
-            raise ValueError('Only "zeros" padding mode is supported for {}'.format(self.__class__.__name__))
+            raise ValueError(f'Only "zeros" padding mode is supported for {self.__class__.__name__}')
 
         factory_kwargs = {'device': device, 'dtype': dtype}
         super().__init__(
@@ -659,10 +656,9 @@ class _ConvTransposeNd(_ConvNd):
                 min_size = min_sizes[i]
                 max_size = max_sizes[i]
                 if size < min_size or size > max_size:
-                    raise ValueError((
-                        "requested an output size of {}, but valid sizes range "
-                        "from {} to {} (for an input of {})").format(
-                            output_size, min_sizes, max_sizes, input.size()[2:]))
+                    raise ValueError(
+                        f"requested an output size of {output_size}, but valid sizes range "
+                        f"from {min_sizes} to {max_sizes} (for an input of {input.size()[2:]})")
 
             res = torch.jit.annotate(List[int], [])
             for d in range(num_spatial_dims):
@@ -1156,7 +1152,7 @@ class _LazyConvXdMixin(LazyModuleMixin):
             super().reset_parameters()  # type: ignore[misc]
 
     # Signature of "initialize_parameters" is incompatible with the definition in supertype LazyModuleMixin
-    def initialize_parameters(self, input) -> None:  # type: ignore[override]
+    def initialize_parameters(self, input: Tensor, *args, **kwargs) -> None:  # type: ignore[override]
         # defined by parent class but using a protocol
         if self.has_uninitialized_params():  # type: ignore[misc]
             self.in_channels = self._get_in_channels(input)
@@ -1188,14 +1184,14 @@ class _LazyConvXdMixin(LazyModuleMixin):
     # Function to return the number of spatial dims expected for inputs to the module.
     # This is expected to be implemented by subclasses.
     def _get_num_spatial_dims(self) -> int:
-        raise NotImplementedError()
+        raise NotImplementedError
 
 
 # LazyConv1d defines weight as a Tensor but derived class defines it as UnitializeParameter
 class LazyConv1d(_LazyConvXdMixin, Conv1d):  # type: ignore[misc]
-    r"""A :class:`torch.nn.Conv1d` module with lazy initialization of
-    the ``in_channels`` argument of the :class:`Conv1d` that is inferred from
-    the ``input.size(1)``.
+    r"""A :class:`torch.nn.Conv1d` module with lazy initialization of the ``in_channels`` argument.
+
+    The ``in_channels`` argument of the :class:`Conv1d` is inferred from the ``input.size(1)``.
     The attributes that will be lazily initialized are `weight` and `bias`.
 
     Check the :class:`torch.nn.modules.lazy.LazyModuleMixin` for further documentation
@@ -1262,9 +1258,9 @@ class LazyConv1d(_LazyConvXdMixin, Conv1d):  # type: ignore[misc]
 
 # LazyConv2d defines weight as a Tensor but derived class defines it as UnitializeParameter
 class LazyConv2d(_LazyConvXdMixin, Conv2d):  # type: ignore[misc]
-    r"""A :class:`torch.nn.Conv2d` module with lazy initialization of
-    the ``in_channels`` argument of the :class:`Conv2d` that is inferred from
-    the ``input.size(1)``.
+    r"""A :class:`torch.nn.Conv2d` module with lazy initialization of the ``in_channels`` argument.
+
+    The ``in_channels`` argument of the :class:`Conv2d` that is inferred from the ``input.size(1)``.
     The attributes that will be lazily initialized are `weight` and `bias`.
 
     Check the :class:`torch.nn.modules.lazy.LazyModuleMixin` for further documentation
@@ -1331,8 +1327,9 @@ class LazyConv2d(_LazyConvXdMixin, Conv2d):  # type: ignore[misc]
 
 # LazyConv3d defines weight as a Tensor but derived class defines it as UnitializeParameter
 class LazyConv3d(_LazyConvXdMixin, Conv3d):  # type: ignore[misc]
-    r"""A :class:`torch.nn.Conv3d` module with lazy initialization of
-    the ``in_channels`` argument of the :class:`Conv3d` that is inferred from
+    r"""A :class:`torch.nn.Conv3d` module with lazy initialization of the ``in_channels`` argument.
+
+    The ``in_channels`` argument of the :class:`Conv3d` that is inferred from
     the ``input.size(1)``.
     The attributes that will be lazily initialized are `weight` and `bias`.
 
@@ -1400,8 +1397,9 @@ class LazyConv3d(_LazyConvXdMixin, Conv3d):  # type: ignore[misc]
 
 # LazyConvTranspose1d defines weight as a Tensor but derived class defines it as UnitializeParameter
 class LazyConvTranspose1d(_LazyConvXdMixin, ConvTranspose1d):  # type: ignore[misc]
-    r"""A :class:`torch.nn.ConvTranspose1d` module with lazy initialization of
-    the ``in_channels`` argument of the :class:`ConvTranspose1d` that is inferred from
+    r"""A :class:`torch.nn.ConvTranspose1d` module with lazy initialization of the ``in_channels`` argument.
+
+    The ``in_channels`` argument of the :class:`ConvTranspose1d` that is inferred from
     the ``input.size(1)``.
     The attributes that will be lazily initialized are `weight` and `bias`.
 
@@ -1468,8 +1466,9 @@ class LazyConvTranspose1d(_LazyConvXdMixin, ConvTranspose1d):  # type: ignore[mi
 
 # LazyConvTranspose2d defines weight as a Tensor but derived class defines it as UnitializeParameter
 class LazyConvTranspose2d(_LazyConvXdMixin, ConvTranspose2d):  # type: ignore[misc]
-    r"""A :class:`torch.nn.ConvTranspose2d` module with lazy initialization of
-    the ``in_channels`` argument of the :class:`ConvTranspose2d` that is inferred from
+    r"""A :class:`torch.nn.ConvTranspose2d` module with lazy initialization of the ``in_channels`` argument.
+
+    The ``in_channels`` argument of the :class:`ConvTranspose2d` is inferred from
     the ``input.size(1)``.
     The attributes that will be lazily initialized are `weight` and `bias`.
 
@@ -1536,8 +1535,9 @@ class LazyConvTranspose2d(_LazyConvXdMixin, ConvTranspose2d):  # type: ignore[mi
 
 # LazyConvTranspose3d defines weight as a Tensor but derived class defines it as UnitializeParameter
 class LazyConvTranspose3d(_LazyConvXdMixin, ConvTranspose3d):  # type: ignore[misc]
-    r"""A :class:`torch.nn.ConvTranspose3d` module with lazy initialization of
-    the ``in_channels`` argument of the :class:`ConvTranspose3d` that is inferred from
+    r"""A :class:`torch.nn.ConvTranspose3d` module with lazy initialization of the ``in_channels`` argument.
+
+    The ``in_channels`` argument of the :class:`ConvTranspose3d` is inferred from
     the ``input.size(1)``.
     The attributes that will be lazily initialized are `weight` and `bias`.
 

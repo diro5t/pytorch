@@ -206,11 +206,11 @@ py_repositories()
 load("@rules_python//python:repositories.bzl", "python_register_toolchains")
 
 python_register_toolchains(
-    name = "python3_8",
-    python_version = "3.8",
+    name = "python3_10",
+    python_version = "3.10",
 )
 
-load("@python3_8//:defs.bzl", "interpreter")
+load("@python3_10//:defs.bzl", "interpreter")
 load("@rules_python//python:pip.bzl", "pip_parse")
 
 pip_parse(
@@ -243,7 +243,13 @@ new_local_repository(
 new_local_repository(
     name = "cudnn",
     build_file = "@//third_party:cudnn.BUILD",
-    path = "/usr/",
+    path = "/usr/local/cuda",
+)
+
+new_local_repository(
+    name = "cudnn_frontend",
+    build_file = "@//third_party:cudnn_frontend.BUILD",
+    path = "third_party/cudnn_frontend/",
 )
 
 local_repository(

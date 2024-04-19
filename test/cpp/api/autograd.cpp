@@ -31,6 +31,22 @@ Variable simple_fn(const Variable& x, const Variable& y) {
   return x + 2 * y + x * y;
 }
 
+TEST(AutogradAPITests, RegisterHookVoidReturnAcceptsUndefinedTensor) {
+  auto x = at::zeros({}, at::kCPU);
+  x.requires_grad_();
+  x.register_hook([](at::TensorBase x) { return; });
+  auto y = torch::autograd::UndefinedGrad().apply({x});
+  y[0].backward();
+}
+
+TEST(AutogradAPITests, RegisterHookTensorReturnAcceptsUndefinedTensor) {
+  auto x = at::zeros({}, at::kCPU);
+  x.requires_grad_();
+  x.register_hook([](at::Tensor x) -> at::Tensor { return x; });
+  auto y = torch::autograd::UndefinedGrad().apply({x});
+  y[0].backward();
+}
+
 TEST(AutogradAPITests, BackwardSimpleTest) {
   Variable x = torch::randn({2, 2}, torch::requires_grad());
   Variable y = torch::randn({2, 2}, torch::requires_grad());
@@ -1484,14 +1500,11 @@ TEST(TestAutogradNotImplementedFallback, RetTupleNonTensor) {
   auto opHandle = c10::Dispatcher::singleton().findSchemaOrThrow(
       "_test::ret_tuple_non_tensor", "");
   auto op = [&](const torch::Tensor& _1, const torch::Tensor& _2) {
-    torch::Tensor out0;
-    torch::Tensor out1;
-    int64_t out2;
     auto out = callOpUnboxed<
         std::tuple<torch::Tensor, torch::Tensor, int64_t>,
         const torch::Tensor&,
         const torch::Tensor&>(opHandle, _1, _2);
-    std::tie(out0, out1, out2) = std::move(out);
+    auto [out0, out1, out2] = std::move(out);
     return out0;
   };
 
@@ -1648,7 +1661,7 @@ TEST(TestAutogradNotImplementedFallback, TensorlistOp) {
 
   ASSERT_THROWS_WITH(
       torch::autograd::grad({out}, {vec[0]}),
-      "One of the differentiated Tensors does not require grad");
+      "element 0 of the input tensors does not require grad");
   ASSERT_THROWS_WITH(
       torch::autograd::grad({out}, {vec[1]}), "is not implemented");
 

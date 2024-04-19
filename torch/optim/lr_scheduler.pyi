@@ -1,4 +1,4 @@
-from typing import Any, Callable, Dict, Iterable, List, Optional, Union
+from typing import Any, Callable, Dict, Iterable, List, Optional, Sequence, Union
 
 from .optimizer import Optimizer
 
@@ -109,7 +109,11 @@ class ExponentialLR(LRScheduler):
     ) -> None: ...
 
 class ChainedScheduler(LRScheduler):
-    def __init__(self, schedulers: List[LRScheduler]) -> None: ...
+    def __init__(
+        self,
+        schedulers: Sequence[LRScheduler],
+        optimizer: Optional[Optimizer] = ...,
+    ) -> None: ...
 
 class SequentialLR(LRScheduler):
     def __init__(
@@ -133,7 +137,7 @@ class CosineAnnealingLR(LRScheduler):
         verbose: bool = ...,
     ) -> None: ...
 
-class ReduceLROnPlateau:
+class ReduceLROnPlateau(LRScheduler):
     factor: float = ...
     optimizer: Optimizer = ...
     min_lrs: List[float] = ...
@@ -162,7 +166,7 @@ class ReduceLROnPlateau:
         eps: float = ...,
         verbose: bool = ...,
     ) -> None: ...
-    def step(self, metrics: Any, epoch: Optional[int] = ...) -> None: ...
+    def step(self, metrics: Any, epoch: Optional[int] = ...) -> None: ...  # type: ignore[override]
     @property
     def in_cooldown(self) -> bool: ...
     def is_better(self, a: Any, best: Any) -> bool: ...

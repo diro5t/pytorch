@@ -1,4 +1,7 @@
+# mypy: ignore-errors
+
 import faulthandler
+import itertools
 import logging
 import multiprocessing
 import os
@@ -17,7 +20,7 @@ from datetime import timedelta
 from enum import Enum
 from functools import partial, reduce, wraps
 from io import StringIO
-from typing import Dict, NamedTuple, Optional, Union
+from typing import Dict, NamedTuple, Optional, Union, List, Any, Callable, Tuple
 from unittest.mock import patch
 
 import torch
@@ -41,6 +44,7 @@ from torch.testing._internal.distributed.multi_threaded_pg import (
     _uninstall_threaded_pg,
     ProcessLocalGroup,
 )
+import operator
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -152,7 +156,7 @@ def import_transformers_or_skip():
         @wraps(func)
         def wrapper(*args, **kwargs):
             try:
-                from transformers import (  # noqa: Unused
+                from transformers import (  # noqa: F401
                     AutoModelForMaskedLM,
                     BertConfig,
                 )
@@ -215,33 +219,33 @@ def verify_ddp_error_logged(model_DDP, err_substr):
 
 def with_nccl_blocking_wait(func):
     """
-    Convenience decorator to set/unset NCCL_BLOCKING_WAIT flag. Note that use of
-    this decorator will override the setting of NCCL_ASYNC_ERROR_HANDLING for
-    the particular test. After the test, both NCCL_BLOCKING_WAIT and
-    NCCL_ASYNC_ERROR_HANDLING will be restored to their original values.
+    Convenience decorator to set/unset TORCH_NCCL_BLOCKING_WAIT flag. Note that use of
+    this decorator will override the setting of TORCH_NCCL_ASYNC_ERROR_HANDLING for
+    the particular test. After the test, both TORCH_NCCL_BLOCKING_WAIT and
+    TORCH_NCCL_ASYNC_ERROR_HANDLING will be restored to their original values.
     """
 
     @wraps(func)
     def wrapper(*args, **kwargs):
-        # Save and unset NCCL_ASYNC_ERROR_HANDLING
+        # Save and unset TORCH_NCCL_ASYNC_ERROR_HANDLING
         try:
             cached_nccl_async_error_handling: Union[str, None] = os.environ[
-                "NCCL_ASYNC_ERROR_HANDLING"
+                "TORCH_NCCL_ASYNC_ERROR_HANDLING"
             ]
-            del os.environ["NCCL_ASYNC_ERROR_HANDLING"]
+            del os.environ["TORCH_NCCL_ASYNC_ERROR_HANDLING"]
         except KeyError:
-            # NCCL_ASYNC_ERROR_HANDLING was unset
+            # TORCH_NCCL_ASYNC_ERROR_HANDLING was unset
             cached_nccl_async_error_handling = None
 
-        # Save val of NCCL_BLOCKING_WAIT and set it.
+        # Save val of TORCH_NCCL_BLOCKING_WAIT and set it.
         try:
             cached_nccl_blocking_wait: Union[str, None] = os.environ[
-                "NCCL_BLOCKING_WAIT"
+                "TORCH_NCCL_BLOCKING_WAIT"
             ]
         except KeyError:
             cached_nccl_blocking_wait = None
         finally:
-            os.environ["NCCL_BLOCKING_WAIT"] = "1"
+            os.environ["TORCH_NCCL_BLOCKING_WAIT"] = "1"
 
         try:
             ret = func(*args, **kwargs)
@@ -250,11 +254,11 @@ def with_nccl_blocking_wait(func):
             # restore old values.
             if cached_nccl_async_error_handling is not None:
                 os.environ[
-                    "NCCL_ASYNC_ERROR_HANDLING"
+                    "TORCH_NCCL_ASYNC_ERROR_HANDLING"
                 ] = cached_nccl_async_error_handling
 
             if cached_nccl_blocking_wait is not None:
-                os.environ["NCCL_BLOCKING_WAIT"] = cached_nccl_blocking_wait
+                os.environ["TORCH_NCCL_BLOCKING_WAIT"] = cached_nccl_blocking_wait
 
     return wrapper
 
@@ -353,6 +357,7 @@ def create_tcp_store(
     timeout=timedelta(minutes=5),
     wait_for_workers=True,
     jit_class=False,
+    use_libuv=False
 ):
     """
     Creates a TCP store. Retries if the chosen port is already in use.
@@ -365,7 +370,7 @@ def create_tcp_store(
         )
     else:
         return c10d.TCPStore(
-            addr, port, world_size, is_master, wait_for_workers=wait_for_workers
+            addr, port, world_size, is_master, wait_for_workers=wait_for_workers, use_libuv=use_libuv
         )
 
 
@@ -425,7 +430,7 @@ def simple_sparse_reduce_tests(rank: int, world_size: int, num_inputs: int = 1):
 
     def compute_sum(fn, world_size: int):
         return reduce(
-            lambda a, b: a + b, [fn(rank, world_size) for rank in range(world_size)]
+            operator.add, [fn(rank, world_size) for rank in range(world_size)]
         )
 
     return [
@@ -456,15 +461,6 @@ def init_multigpu_helper(world_size: int, backend: str):
     """
     nGPUs = torch.cuda.device_count()
     visible_devices = range(nGPUs)
-
-    if backend == "nccl":
-        # This is a hack for a known NCCL issue using multiprocess
-        # in conjunction with multiple threads to manage different GPUs which
-        # may cause ncclCommInitRank to fail.
-        # http://docs.nvidia.com/deeplearning/sdk/nccl-release-notes/rel_2.1.4.html#rel_2.1.4
-        # It slows down the performance of collective operations.
-        # Without this setting NCCL might throw unhandled error.
-        os.environ["NCCL_MAX_NRINGS"] = "1"
 
     # If rank is less than or equal to number of available GPU's
     # then each rank can be mapped to corresponding GPU.
@@ -760,7 +756,7 @@ class MultiProcessTestCase(TestCase):
                 self._check_return_codes(elapsed_time)
         finally:
             # Close all pipes
-            for pid, pipe in self.pid_to_pipe.items():
+            for pipe in self.pid_to_pipe.values():
                 pipe.close()
 
     def _check_no_test_errors(self, elapsed_time) -> None:
@@ -770,7 +766,7 @@ class MultiProcessTestCase(TestCase):
         for i, p in enumerate(self.processes):
             if p.exitcode is None:
                 raise RuntimeError(
-                    "Process {} timed out after {} seconds".format(i, elapsed_time)
+                    f"Process {i} timed out after {elapsed_time} seconds"
                 )
             self.assertNotEqual(self.TEST_ERROR_EXIT_CODE, p.exitcode)
 
@@ -779,6 +775,11 @@ class MultiProcessTestCase(TestCase):
         Checks that the return codes of all spawned processes match, and skips
         tests if they returned a return code indicating a skipping condition.
         """
+        # If no processes are spawned, there is nothing to check.
+        if not self.processes:
+            logger.warning("Note: no subprocesses were spawned, test was likely skipped.")
+            return
+
         first_process = self.processes[0]
         # first, we check if there are errors in actual processes
         # (via TEST_ERROR_EXIT CODE), and raise an exception for those.
@@ -808,9 +809,7 @@ class MultiProcessTestCase(TestCase):
         for i, p in enumerate(self.processes):
             if p.exitcode is None:
                 raise RuntimeError(
-                    "Process {} terminated or timed out after {} seconds".format(
-                        i, elapsed_time
-                    )
+                    f"Process {i} terminated or timed out after {elapsed_time} seconds"
                 )
             self.assertEqual(
                 p.exitcode,
@@ -835,14 +834,44 @@ class MultiProcessTestCase(TestCase):
         self.assertEqual(
             first_process.exitcode,
             0,
-            msg="Expected zero exit code but got {} for pid: {}".format(
-                first_process.exitcode, first_process.pid
-            ),
+            msg=f"Expected zero exit code but got {first_process.exitcode} for pid: {first_process.pid}",
         )
 
     @property
     def is_master(self) -> bool:
         return self.rank == 0
+
+
+def run_subtests(
+    cls_inst,
+    subtest_config: Dict[str, List[Any]],
+    test_fn: Callable,
+    *test_args,
+    **test_kwargs: Any,
+):
+    """
+    Runs a test function given by ``test_fn`` as a subtest according to the
+    configurations specified by ``subtest_config``. This amortizes the
+    costly setup overhead (including process spawn and initializing the
+    process group) over the subtests.
+
+    Args:
+        subtest_config (Dict[str, List[Any]]): A mapping from subtest
+            keyword argument name to a list of its possible values.
+        test_fn (Callable): A callable that runs the actual test.
+        test_args: Positional arguments to pass to ``test_fn``.
+        test_kwargs: Keyword arguments to pass to ``test_fn``.
+    """
+    # Convert the config mapping to a list to have a fixed order
+    subtest_config_items: List[Tuple[str, List[Any]]] = list(subtest_config.items())
+    subtest_config_keys: List[str] = [item[0] for item in subtest_config_items]
+    subtest_config_values: List[List[Any]] = [item[1] for item in subtest_config_items]
+    for values in itertools.product(*subtest_config_values):
+        # Map keyword to chosen value
+        subtest_kwargs = dict(zip(subtest_config_keys, values))
+        with cls_inst.subTest(**subtest_kwargs):
+            test_fn(*test_args, **test_kwargs, **subtest_kwargs)
+        c10d.barrier()
 
 
 # Cannot use functools.cache as it requires python 3.9
@@ -861,7 +890,7 @@ def has_efa() -> bool:
 
     try:
         EFA_PROBE_RESULT = (
-            subprocess.run(["fi_info", "-p", "efa", "-t", "FI_EP_RDM"]).returncode == 0
+            subprocess.run(["fi_info", "-p", "efa", "-t", "FI_EP_RDM"], check=False).returncode == 0
         )
     except FileNotFoundError:
         EFA_PROBE_RESULT = False
@@ -923,9 +952,13 @@ def spawn_threads_and_init_comms(
     @wraps(func)
     def wrapper(self, *args, **kwargs):
         # TODO: get test name from kwargs
-        threads = _run_test_method_with_multi_threads(world_size, lambda: func(self, *args, **kwargs))
-        # join and error handling
-        MultiThreadedTestCase._join_threads(threads, func)
+        torch._C._distributed_c10d._set_thread_isolation_mode(True)
+        try:
+            threads = _run_test_method_with_multi_threads(world_size, lambda: func(self, *args, **kwargs))
+            # join and error handling
+            MultiThreadedTestCase._join_threads(threads, func)
+        finally:
+            torch._C._distributed_c10d._set_thread_isolation_mode(False)
 
     return wrapper
 
@@ -993,6 +1026,7 @@ class MultiThreadedTestCase(TestCase):
         """
         class method to spawn threads and run test, use this method in the SetUp of your TestCase
         """
+        torch._C._distributed_c10d._set_thread_isolation_mode(True)
         test_name = self._current_test_name
         # for each test case, we need to create thread local world, and a global store
         world = _install_threaded_pg()
@@ -1070,6 +1104,7 @@ class MultiThreadedTestCase(TestCase):
                 failed_ranks.append(failure)
         finally:
             _uninstall_threaded_pg()
+            torch._C._distributed_c10d._set_thread_isolation_mode(False)
 
         cls._check_return_codes(failed_ranks, timeout, fn)
 
@@ -1091,9 +1126,7 @@ class MultiThreadedTestCase(TestCase):
                 if skip_code < 0:
                     skip_code = TEST_SKIPS["generic"].exit_code
             elif isinstance(exc, TimeoutError):
-                msg = "Thread {} terminated or timed out after {} seconds\n".format(
-                    rank, timeout
-                )
+                msg = f"Thread {rank} terminated or timed out after {timeout} seconds\n"
                 logger.error(msg)
                 raise RuntimeError(msg)
             elif isinstance(exc, Exception):
@@ -1102,7 +1135,7 @@ class MultiThreadedTestCase(TestCase):
                     "Caught exception: \n%s exiting thread %s", msg, rank
                 )
                 error_msg += (
-                    "Thread {} exited with exception:\n{}\n".format(rank, msg)
+                    f"Thread {rank} exited with exception:\n{msg}\n"
                 )
             elif isinstance(exc, SystemExit):
                 if type(exc.code) == int and skip_code < 0:

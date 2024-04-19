@@ -221,7 +221,7 @@ class NLLLoss2d(NLLLoss):
                  reduce=None, reduction: str = 'mean') -> None:
         warnings.warn("NLLLoss2d has been deprecated. "
                       "Please use NLLLoss instead as a drop-in replacement and see "
-                      "https://pytorch.org/docs/master/nn.html#torch.nn.NLLLoss for more details.")
+                      "https://pytorch.org/docs/main/nn.html#torch.nn.NLLLoss for more details.")
         super().__init__(weight, size_average, ignore_index, reduce, reduction)
 
 
@@ -660,7 +660,7 @@ class BCEWithLogitsLoss(_Loss):
     :math:`p_c > 1` increases the recall, :math:`p_c < 1` increases the precision.
 
     For example, if a dataset contains 100 positive and 300 negative examples of a single class,
-    then `pos_weight` for the class should be equal to :math:`\frac{300}{100}=3`.
+    then ``pos_weight`` for the class should be equal to :math:`\frac{300}{100}=3`.
     The loss would act as if the dataset contains :math:`3\times 100=300` positive examples.
 
     Examples::
@@ -671,6 +671,12 @@ class BCEWithLogitsLoss(_Loss):
         >>> criterion = torch.nn.BCEWithLogitsLoss(pos_weight=pos_weight)
         >>> criterion(output, target)  # -log(sigmoid(1.5))
         tensor(0.20...)
+
+    In the above example, the ``pos_weight`` tensor's elements correspond to the 64 distinct classes
+    in a multi-label binary classification scenario. Each element in ``pos_weight`` is designed to adjust the
+    loss function based on the imbalance between negative and positive samples for the respective class.
+    This approach is useful in datasets with varying levels of class imbalance, ensuring that the loss
+    calculation accurately accounts for the distribution in each class.
 
     Args:
         weight (Tensor, optional): a manual rescaling weight given to the loss
@@ -1106,7 +1112,7 @@ class CrossEntropyLoss(_WeightedLoss):
 
     Args:
         weight (Tensor, optional): a manual rescaling weight given to each class.
-            If given, has to be a Tensor of size `C`
+            If given, has to be a Tensor of size `C` and floating point dtype
         size_average (bool, optional): Deprecated (see :attr:`reduction`). By default,
             the losses are averaged over each loss element in the batch. Note that for
             some losses, there are multiple elements per sample. If the field :attr:`size_average`
@@ -1216,7 +1222,7 @@ class MultiLabelSoftMarginLoss(_WeightedLoss):
 
     Shape:
         - Input: :math:`(N, C)` where `N` is the batch size and `C` is the number of classes.
-        - Target: :math:`(N, C)`, label targets padded by -1 ensuring same shape as the input.
+        - Target: :math:`(N, C)`, label targets must have the same shape as the input.
         - Output: scalar. If :attr:`reduction` is ``'none'``, then :math:`(N)`.
     """
     __constants__ = ['reduction']
@@ -1231,8 +1237,8 @@ class MultiLabelSoftMarginLoss(_WeightedLoss):
 class CosineEmbeddingLoss(_Loss):
     r"""Creates a criterion that measures the loss given input tensors
     :math:`x_1`, :math:`x_2` and a `Tensor` label :math:`y` with values 1 or -1.
-    This is used for measuring whether two inputs are similar or dissimilar,
-    using the cosine similarity, and is typically used for learning nonlinear
+    Use (:math:`y=1`) to maximize the cosine similarity of two inputs, and (:math:`y=-1`) otherwise.
+    This is typically used for learning nonlinear
     embeddings or semi-supervised learning.
 
     The loss function for each sample is:
@@ -1269,6 +1275,15 @@ class CosineEmbeddingLoss(_Loss):
         - Input2: :math:`(N, D)` or :math:`(D)`, same shape as Input1.
         - Target: :math:`(N)` or :math:`()`.
         - Output: If :attr:`reduction` is ``'none'``, then :math:`(N)`, otherwise scalar.
+
+    Examples::
+
+        >>> loss = nn.CosineEmbeddingLoss()
+        >>> input1 = torch.randn(3, 5, requires_grad=True)
+        >>> input2 = torch.randn(3, 5, requires_grad=True)
+        >>> target = torch.ones(3)
+        >>> output = loss(input1, input2, target)
+        >>> output.backward()
     """
     __constants__ = ['margin', 'reduction']
     margin: float
@@ -1407,7 +1422,10 @@ class MultiMarginLoss(_WeightedLoss):
         super().__init__(weight, size_average, reduce, reduction)
         if p != 1 and p != 2:
             raise ValueError("only p == 1 and p == 2 supported")
-        assert weight is None or weight.dim() == 1
+        if weight is not None and weight.dim() != 1 :
+            raise ValueError(
+                f"MultiMarginLoss: expected weight to be None or 1D tensor, got {weight.dim()}D instead"
+            )
         self.p = p
         self.margin = margin
 
@@ -1439,12 +1457,16 @@ class TripletMarginLoss(_Loss):
     .. math::
         d(x_i, y_i) = \left\lVert {\bf x}_i - {\bf y}_i \right\rVert_p
 
+    The norm is calculated using the specified p value and a small constant :math:`\varepsilon` is
+    added for numerical stability.
+
     See also :class:`~torch.nn.TripletMarginWithDistanceLoss`, which computes the
     triplet margin loss for input tensors using a custom distance function.
 
     Args:
         margin (float, optional): Default: :math:`1`.
         p (int, optional): The norm degree for pairwise distance. Default: :math:`2`.
+        eps (float, optional): Small constant for numerical stability. Default: :math:`1e-6`.
         swap (bool, optional): The distance swap is described in detail in the paper
             `Learning shallow convolutional feature descriptors with triplet losses` by
             V. Balntas, E. Riba et al. Default: ``False``.
@@ -1471,7 +1493,7 @@ class TripletMarginLoss(_Loss):
 
     Examples::
 
-    >>> triplet_loss = nn.TripletMarginLoss(margin=1.0, p=2)
+    >>> triplet_loss = nn.TripletMarginLoss(margin=1.0, p=2, eps=1e-7)
     >>> anchor = torch.randn(100, 128, requires_grad=True)
     >>> positive = torch.randn(100, 128, requires_grad=True)
     >>> negative = torch.randn(100, 128, requires_grad=True)
@@ -1490,6 +1512,10 @@ class TripletMarginLoss(_Loss):
     def __init__(self, margin: float = 1.0, p: float = 2., eps: float = 1e-6, swap: bool = False, size_average=None,
                  reduce=None, reduction: str = 'mean'):
         super().__init__(size_average, reduce, reduction)
+        if margin <= 0:
+            raise ValueError(
+                f"TripletMarginLoss: expected margin to be greater than 0, got {margin} instead"
+            )
         self.margin = margin
         self.p = p
         self.eps = eps
@@ -1605,6 +1631,10 @@ class TripletMarginWithDistanceLoss(_Loss):
     def __init__(self, *, distance_function: Optional[Callable[[Tensor, Tensor], Tensor]] = None,
                  margin: float = 1.0, swap: bool = False, reduction: str = 'mean'):
         super().__init__(size_average=None, reduce=None, reduction=reduction)
+        if margin <= 0:
+            raise ValueError(
+                f"TripletMarginWithDistanceLoss: expected margin to be greater than 0, got {margin} instead"
+            )
         self.distance_function: Optional[Callable[[Tensor, Tensor], Tensor]] = \
             distance_function if distance_function is not None else PairwiseDistance()
         self.margin = margin
@@ -1648,7 +1678,7 @@ class CTCLoss(_Loss):
           :math:`(\operatorname{sum}(\text{target\_lengths}))`,
           where :math:`N = \text{batch size}` and
           :math:`S = \text{max target length, if shape is } (N, S)`.
-          It represent the target sequences. Each element in the target
+          It represents the target sequences. Each element in the target
           sequence is a class index. And the target index cannot be blank (default=0).
           In the :math:`(N, S)` form, targets are padded to the
           length of the longest sequence, and stacked.
@@ -1656,12 +1686,12 @@ class CTCLoss(_Loss):
           the targets are assumed to be un-padded and
           concatenated within 1 dimension.
         - Input_lengths: Tuple or tensor of size :math:`(N)` or :math:`()`,
-          where :math:`N = \text{batch size}`. It represent the lengths of the
+          where :math:`N = \text{batch size}`. It represents the lengths of the
           inputs (must each be :math:`\leq T`). And the lengths are specified
           for each sequence to achieve masking under the assumption that sequences
           are padded to equal lengths.
         - Target_lengths: Tuple or tensor of size :math:`(N)` or :math:`()`,
-          where :math:`N = \text{batch size}`. It represent lengths of the targets.
+          where :math:`N = \text{batch size}`. It represents lengths of the targets.
           Lengths are specified for each sequence to achieve masking under the
           assumption that sequences are padded to equal lengths. If target shape is
           :math:`(N,S)`, target_lengths are effectively the stop index

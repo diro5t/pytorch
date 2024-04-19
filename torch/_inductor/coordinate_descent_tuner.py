@@ -3,7 +3,8 @@ import itertools
 import logging
 from typing import Callable, Optional
 
-from .utils import has_triton, red_text, triton_config_to_hashable
+from torch.utils._triton import has_triton
+from .utils import red_text, triton_config_to_hashable
 
 if has_triton():
     import triton
@@ -37,10 +38,10 @@ class CoordescTuner:
     """
     The coordinate descent tuner. Tune one field/coordinate at a time.
 
-    TODO will it be necessary to tune multiple fields simultanuously.
+    TODO will it be necessary to tune multiple fields simultaneously.
 
 
-    TODO: what if both increasing and descreasing a field can improve perf.
+    TODO: what if both increasing and decreasing a field can improve perf.
           i.e., there are multiple local optima..
     """
 
@@ -69,11 +70,15 @@ class CoordescTuner:
         return zmax
 
     def get_rmax(self):
+        rmax = inductor_config.triton.max_block["R"]
         if self.size_hints and len(self.size_hints) > 0:
-            return self.size_hints[-1]  # the last one is for reduction
-        else:
-            # large enough. We should not pick this large RBLOCK anyway
-            return 2**30
+            rmax = min(rmax, self.size_hints[-1])  # the last one is for reduction
+        return rmax
+
+    def get_warpsmax(self):
+        # Currently, CUDA has a maximum of 1024 threads, so 32 is the max
+        # number of warps.
+        return 1024 // 32
 
     def cache_benchmark_result(self, config, timing):
         self.cached_benchmark_results[triton_config_to_hashable(config)] = timing
@@ -120,6 +125,8 @@ class CoordescTuner:
             return val > self.get_zmax()
         if name == "RBLOCK":
             return val > self.get_rmax()
+        if name == "num_warps":
+            return val > self.get_warpsmax()
 
         return False
 
@@ -216,7 +223,7 @@ class CoordescTuner:
         Check if candidate_config is better than best_config.
 
         Return a touple of (compare_result, candidate_timing).
-        compare_result is true iff condidate_config is better.
+        compare_result is true iff candidate_config is better.
         """
         log.debug("Try config %s", candidate_config)
         try:

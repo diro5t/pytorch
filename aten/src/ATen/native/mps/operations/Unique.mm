@@ -9,9 +9,12 @@
 #include <ATen/NativeFunctions.h>
 #else
 #include <ATen/ops/_unique2.h>
+#include <ATen/ops/_unique2_native.h>
 #include <ATen/ops/slice.h>
 #include <ATen/ops/unique_consecutive.h>
+#include <ATen/ops/unique_consecutive_native.h>
 #include <ATen/ops/unique_dim_consecutive.h>
+#include <ATen/ops/unique_dim_consecutive_native.h>
 #endif
 
 namespace at::native {
@@ -38,12 +41,12 @@ static std::string getUniqueKey(const ScalarType& dtype,
 }
 
 // dim arg not supported when non consecutive, ie sorted
-std::array<MPSGraphTensor*, 4> buildUniqueGraph(const Tensor& self,
-                                                UniqueCachedGraph* uniqueGraph,
-                                                const bool return_inverse,
-                                                const bool return_counts,
-                                                const bool consecutive,
-                                                c10::optional<int64_t> dimOpt) {
+static std::array<MPSGraphTensor*, 4> buildUniqueGraph(const Tensor& self,
+                                                       UniqueCachedGraph* uniqueGraph,
+                                                       const bool return_inverse,
+                                                       const bool return_counts,
+                                                       const bool consecutive,
+                                                       c10::optional<int64_t> dimOpt) {
   int64_t dim = dimOpt.has_value() ? maybe_wrap_dim(dimOpt.value(), self.dim()) : 0;
 
   MPSGraph* graph = uniqueGraph->graph();
@@ -104,7 +107,7 @@ std::array<MPSGraphTensor*, 4> buildUniqueGraph(const Tensor& self,
                                                                           name:nil];
   MPSGraphTensor* mask = [graph castTensor:notEqualToPreviousElement toType:MPSDataTypeInt32 name:@"castMaskTensor"];
 
-  // If comparing tensors, not scalars, check if entire tensor matches previos element using reductionOr over tensor
+  // If comparing tensors, not scalars, check if entire tensor matches previous element using reductionOr over tensor
   if (dimOpt.has_value() && [shape count] != 1) {
     NSMutableArray* axes = [[NSMutableArray alloc] initWithCapacity:[shape count] - 1];
     for (const auto axis : c10::irange([shape count])) {
@@ -183,11 +186,7 @@ static UniqueCachedGraph* getUniqueGraph(const Tensor& self,
   @autoreleasepool {
     string key = getUniqueKey(self.scalar_type(), self.sizes(), return_inverse, return_counts, consecutive, dim);
     return LookUpOrCreateCachedGraph<UniqueCachedGraph>(key, [&](auto mpsGraph, auto newCachedGraph) {
-      // Workaround for MPSShaderLibrary bug
-      // TODO: Remove once https://github.com/pytorch/pytorch/issues/82305 is resolved
-      auto inputType = getMPSScalarType(self.scalar_type());
-      newCachedGraph->inputTensor_ = mpsGraphRankedPlaceHolder(mpsGraph, inputType, getMPSShape(self.sizes()));
-
+      newCachedGraph->inputTensor_ = mpsGraphRankedPlaceHolder(mpsGraph, getMPSScalarType(self), getMPSShape(self));
       auto outputTensors = buildUniqueGraph(self, newCachedGraph, return_inverse, return_counts, consecutive, dim);
 
       newCachedGraph->outputTensor_ = outputTensors[0];
@@ -198,18 +197,16 @@ static UniqueCachedGraph* getUniqueGraph(const Tensor& self,
   }
 }
 
-void runUniqueGraph(UniqueCachedGraph* uniqueGraph,
-                    const Tensor& input,
-                    Tensor& output,
-                    Tensor& inverse_indices,
-                    Tensor& counts,
-                    Tensor& length,
-                    bool return_inverse,
-                    bool return_counts) {
+static void runUniqueGraph(UniqueCachedGraph* uniqueGraph,
+                           const Tensor& input,
+                           Tensor& output,
+                           Tensor& inverse_indices,
+                           Tensor& counts,
+                           Tensor& length,
+                           bool return_inverse,
+                           bool return_counts) {
   Placeholder inputPlaceholder = Placeholder(uniqueGraph->inputTensor_, input);
-  NSDictionary<MPSGraphTensor*, MPSGraphTensorData*>* feeds = @{
-    inputPlaceholder.getMPSGraphTensor() : inputPlaceholder.getMPSGraphTensorData(),
-  };
+  auto feeds = dictionaryFromPlaceholders(inputPlaceholder);
 
   NSMutableDictionary<MPSGraphTensor*, MPSGraphTensorData*>* results = [NSMutableDictionary dictionary];
   Placeholder outputPlaceholder = Placeholder(uniqueGraph->outputTensor_, output);
@@ -233,11 +230,11 @@ void runUniqueGraph(UniqueCachedGraph* uniqueGraph,
 
 } // namespace mps
 
-std::tuple<Tensor, Tensor, Tensor> _unique_impl_mps(const Tensor& self,
-                                                    const bool return_inverse,
-                                                    const bool return_counts,
-                                                    const bool consecutive,
-                                                    c10::optional<int64_t> dimOpt) {
+static std::tuple<Tensor, Tensor, Tensor> _unique_impl_mps(const Tensor& self,
+                                                           const bool return_inverse,
+                                                           const bool return_counts,
+                                                           const bool consecutive,
+                                                           c10::optional<int64_t> dimOpt) {
   const Tensor& input = self.contiguous();
 
   // get flat output size
@@ -282,7 +279,7 @@ std::tuple<Tensor, Tensor, Tensor> _unique_impl_mps(const Tensor& self,
 }
 
 static std::tuple<Tensor, Tensor, Tensor> castToMPS(std::tuple<Tensor, Tensor, Tensor> out) {
-  return std::make_tuple(get<0>(out).to("mps"), get<1>(out).to("mps"), get<2>(out).to("mps"));
+  return std::make_tuple(std::get<0>(out).to("mps"), std::get<1>(out).to("mps"), std::get<2>(out).to("mps"));
 }
 
 std::tuple<Tensor, Tensor, Tensor> unique_consecutive_mps(const Tensor& self,
@@ -291,7 +288,7 @@ std::tuple<Tensor, Tensor, Tensor> unique_consecutive_mps(const Tensor& self,
                                                           c10::optional<int64_t> dim) {
   if (!is_macos_13_or_newer()) {
     TORCH_WARN_ONCE("MPS: unique_consecutive op is supported natively starting from macOS 13.0. ",
-                    "Falling back on CPU. This may have performace implications.");
+                    "Falling back on CPU. This may have performance implications.");
     return castToMPS(at::unique_consecutive(self.to("cpu"), return_inverse, return_counts, dim));
   }
 
@@ -304,7 +301,7 @@ std::tuple<Tensor, Tensor, Tensor> unique_dim_consecutive_mps(const Tensor& self
                                                               const bool return_counts) {
   if (!is_macos_13_or_newer()) {
     TORCH_WARN_ONCE("MPS: unique_dim_consecutive op is supported natively starting from macOS 13.0. ",
-                    "Falling back on CPU. This may have performace implications.");
+                    "Falling back on CPU. This may have performance implications.");
     return castToMPS(at::unique_dim_consecutive(self.to("cpu"), dim, return_inverse, return_counts));
   }
 
@@ -317,7 +314,7 @@ std::tuple<Tensor, Tensor, Tensor> _unique2_mps(const Tensor& self,
                                                 const bool return_counts) {
   if (!is_macos_13_or_newer()) {
     TORCH_WARN_ONCE("MPS: _unique2 op is supported natively starting from macOS 13.0. ",
-                    "Falling back on CPU. This may have performace implications.");
+                    "Falling back on CPU. This may have performance implications.");
     return castToMPS(at::_unique2(self.to("cpu"), sorted, return_inverse, return_counts));
   }
 

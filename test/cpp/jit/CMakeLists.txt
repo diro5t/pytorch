@@ -27,7 +27,7 @@ add_library(backend_with_compiler SHARED
         )
 if(USE_KINETO)
   set_target_properties(backend_with_compiler PROPERTIES COMPILE_FLAGS
-  "-DUSE_KINETO")
+  "-DUSE_KINETO -DTMP_LIBKINETO_NANOSECOND")
 endif()
 target_link_libraries(backend_with_compiler torch)
 
@@ -139,12 +139,6 @@ if(LINUX)
 endif()
 
 if(USE_CUDA)
-  target_link_libraries(test_jit PRIVATE
-    ${CUDA_LIBRARIES}
-    ${CUDA_NVRTC_LIB}
-    ${CUDA_CUDA_LIB}
-    ${TORCH_CUDA_LIBRARIES})
-
   target_compile_definitions(test_jit PRIVATE USE_CUDA)
   # Suppress sign compare checks for NVFUSER JIT tests
   if(NOT MSVC)
@@ -153,7 +147,7 @@ if(USE_CUDA)
 elseif(USE_ROCM)
   target_link_libraries(test_jit PRIVATE
     ${ROCM_HIPRTC_LIB}
-    ${PYTORCH_HIP_HCC_LIBRARIES}
+    ${PYTORCH_HIP_LIBRARIES}
     ${TORCH_CUDA_LIBRARIES})
 
   target_compile_definitions(test_jit PRIVATE USE_ROCM)

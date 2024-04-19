@@ -6,12 +6,11 @@
 #include <c10/util/Exception.h>
 #include <vector>
 
-namespace at {
-namespace functionalization {
+namespace at::functionalization {
 
 ViewMeta ViewMeta::to_out_idx(int64_t out_idx) {
   if (out_idx == this->out_index) return *this;
-  return ViewMeta(forward_fn, reverse_fn, out_idx);
+  return ViewMeta(forward_fn, reverse_fn, is_multi_output, is_as_strided, out_idx);
 }
 
 // Note [Functionalization: Alias Removal Part 2]
@@ -95,7 +94,7 @@ FunctionalStorageImpl::FunctionalStorageImpl(const Tensor& base)
       get_nbytes(base),
       DataPtr{nullptr, base.device()},
       GetAllocator(kMeta),
-      /*resizeable=*/true
+      /*resizable=*/true
     ),
     base_(base)
   {
@@ -104,6 +103,18 @@ FunctionalStorageImpl::FunctionalStorageImpl(const Tensor& base)
 
 void FunctionalStorageImpl::add_update(const Tensor& updated_val, const std::vector<ViewMeta>& metas) {
   TORCH_CHECK(!frozen_, "cannot mutate tensors with frozen storage");
+
+  if (metas.size() > 1) {
+    for (size_t i = 1; i < metas.size(); ++i) {
+      // Skipping this check for XLA. Would be good to add it back, but it is failing XLA CI
+      TORCH_CHECK(updated_val.device().type() == c10::DeviceType::XLA || !metas[i].is_as_strided,
+"During torch.compile, encountered a mutation on a view chain of length ", metas.size(), ", where view ", i,
+" was an as_strided() call. as_strided() is non-compositional, and therefore is not possible to functionalize properly today,"
+"so this behavior is banned in compile. As a workaround, you can either remove the mutation from the model code, or you "
+"can insert a graph break right before the mutation with torch._dynamo.graph_break(). If you would like this behavior to "
+"work properly, please comment on https://github.com/pytorch/pytorch/issues/104505.");
+    }
+  }
   updates_.push_back({updated_val, metas});
   generation_++;
 }
@@ -122,5 +133,4 @@ bool FunctionalStorageImpl::apply_updates() {
   return any_updates;
 }
 
-} // namespace functionalization
-} // namespace at
+} // namespace at::functionalization

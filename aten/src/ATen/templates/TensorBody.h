@@ -65,6 +65,7 @@ struct Node;
 namespace at {
 
 class OptionalTensorRef;
+class TensorRef;
 class Tensor;
 using TensorList = ArrayRef<Tensor>;
 using ITensorList = c10::IListRef<Tensor>;
@@ -96,6 +97,7 @@ class TORCH_API Tensor: public TensorBase {
   explicit Tensor(unsafe_borrow_t, const TensorBase& rhs): TensorBase(unsafe_borrow_t{}, rhs) {}
   friend MaybeOwnedTraits<Tensor>;
   friend OptionalTensorRef;
+  friend TensorRef;
 
  public:
   Tensor() = default;
@@ -738,7 +740,7 @@ inline c10::MaybeOwned<Tensor> borrow_from_optional_tensor(
     const c10::optional<Tensor>& opt) {
   return opt.has_value()
     ? c10::MaybeOwned<Tensor>::borrowed(*opt)
-    : c10::MaybeOwned<Tensor>::owned(c10::in_place);
+    : c10::MaybeOwned<Tensor>::owned(std::in_place);
 }
 
 inline c10::MaybeOwned<Tensor> Tensor::expect_contiguous(MemoryFormat memory_format) const & {

@@ -17,19 +17,14 @@
 
 #include <chrono>
 #include <cstdio>
-#include <functional>
-#include <iostream>
-#include <limits>
-#include <sstream>
-#include <system_error>
 #include <thread>
 #include <utility>
 
 #include <c10/util/Exception.h>
 
-#define SYSASSERT(rv, ...)                                                 \
-  if ((rv) < 0) {                                                          \
-    throw std::system_error(errno, std::system_category(), ##__VA_ARGS__); \
+#define SYSASSERT(rv, ...)                                 \
+  if ((rv) < 0) {                                          \
+    C10_THROW_ERROR(DistStoreError, std::strerror(errno)); \
   }
 
 #ifdef _WIN32
@@ -95,6 +90,7 @@ class Lock {
     flock(operation);
   }
 
+  // NOLINTNEXTLINE(bugprone-exception-escape)
   ~Lock() {
     unlock();
   }
@@ -260,7 +256,7 @@ off_t refresh(
     File& file,
     off_t pos,
     std::unordered_map<std::string, std::vector<uint8_t>>& cache,
-    const std::string deletePrefix) {
+    const std::string& deletePrefix) {
   auto size = file.size();
   if (size != pos) {
     std::string tmpKey;
@@ -295,6 +291,7 @@ FileStore::FileStore(std::string path, int numWorkers)
   addHelper(refCountKey_, 1);
 }
 
+// NOLINTNEXTLINE(bugprone-exception-escape)
 FileStore::~FileStore() {
   // If the file does not exist - exit.
   // This can happen when FileStore is invoked from python language which has
@@ -429,7 +426,7 @@ int64_t FileStore::getNumKeys() {
   File file(path_, O_RDONLY, timeout_);
   auto lock = file.lockShared();
   pos_ = refresh(file, pos_, cache_, deletePrefix_);
-  return cache_.size();
+  return static_cast<int64_t>(cache_.size());
 }
 
 bool FileStore::deleteKey(const std::string& key) {

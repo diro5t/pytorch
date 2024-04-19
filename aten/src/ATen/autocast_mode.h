@@ -8,8 +8,7 @@
 #include <c10/core/impl/LocalDispatchKeySet.h>
 #include <c10/util/intrusive_ptr.h>
 
-namespace at {
-namespace autocast {
+namespace at::autocast {
 
 TORCH_API bool is_enabled();
 TORCH_API void set_enabled(bool enabled);
@@ -46,7 +45,9 @@ TORCH_API bool is_autocast_cache_enabled();
 TORCH_API void set_autocast_cache_enabled(bool enabled);
 
 namespace {
-bool is_autocast_eligible(const Tensor& tensor, c10::DeviceType device_type) {
+inline bool is_autocast_eligible(
+    const Tensor& tensor,
+    c10::DeviceType device_type) {
   switch (device_type) {
     case c10::DeviceType::CUDA:
       return (tensor.is_cuda() || tensor.is_xla()) &&
@@ -63,8 +64,7 @@ bool is_autocast_eligible(const Tensor& tensor, c10::DeviceType device_type) {
     case c10::DeviceType::XLA:
       return tensor.is_xla() && tensor.is_floating_point();
     case c10::DeviceType::PrivateUse1:
-      return tensor.device().type() == c10::DeviceType::PrivateUse1 &&
-          tensor.is_floating_point();
+      return tensor.is_privateuseone() && tensor.is_floating_point();
     default:
       return false;
   }
@@ -537,14 +537,17 @@ wouldn't try to get clever about it Therefore, for the moment, this is all
 copy pasted in from VariableTypeEverything.cpp with appropriate substitutions.
 ********************************************************************************************************************/
 
-} // namespace autocast
-} // namespace at
+} // namespace at::autocast
 
 #define ADD_NS(RAW_OP) at::RAW_OP
 
+#define _KERNEL_OVERLOAD_NARG_IMPL(_0, _1, _2, N, ...) N
+#define _KERNEL_OVERLOAD_NARG(...) \
+  C10_EXPAND_MSVC_WORKAROUND(_KERNEL_OVERLOAD_NARG_IMPL(__VA_ARGS__, 2, 1))
+
 // Common cases where registration signature matches redispatch signature
 // (that's why SIGNATURE is repeated in the WrapFunction instantiation)
-#define KERNEL(DISPATCHKEY, OP, POLICY)       \
+#define KERNEL1(DISPATCHKEY, OP, POLICY)      \
   m.impl(                                     \
       TORCH_SELECTIVE_NAME("aten::" #OP),     \
       &::at::autocast::WrapFunction<          \
@@ -564,6 +567,15 @@ copy pasted in from VariableTypeEverything.cpp with appropriate substitutions.
           decltype(ATEN_FN2(OP, OVERLOAD)),             \
           &ATEN_FN2(OP, OVERLOAD)>::type::call);
 
+#define _KERNEL_DISPATCH(DISPATCHKEY, NARG, ...) \
+  C10_CONCATENATE(KERNEL, NARG)(DISPATCHKEY, __VA_ARGS__)
+
+#define _KERNEL_IMPL(DISPATCHKEY, ...) \
+  _KERNEL_DISPATCH(DISPATCHKEY, _KERNEL_OVERLOAD_NARG(__VA_ARGS__), __VA_ARGS__)
+
+// It will dispatch to KERNEL1 or KERNEL2 based on its inputs.
+#define KERNEL(DISPATCHKEY, ...) _KERNEL_IMPL(DISPATCHKEY, __VA_ARGS__)
+
 // Less-common but still useful case: redispatching to a function
 // with a new signature (e.g. appending a dtype)
 #define KERNEL_DIFFERENT_REDISPATCH_SIGNATURE(      \
@@ -582,12 +594,9 @@ copy pasted in from VariableTypeEverything.cpp with appropriate substitutions.
           REDISPATCH_SIGNATURE,                     \
           &REDISPATCH_FUNC>::type::call);
 
-// KERNEL_CPU/KERNEL_CPU2/KERNEL_DIFFERENT_REDISPATCH_SIGNATURE_CPU
-// registration for AutocastCPU
-#define KERNEL_CPU(OP, POLICY) KERNEL(c10::DeviceType::CPU, OP, POLICY)
-
-#define KERNEL_CPU2(OP, OVERLOAD, POLICY) \
-  KERNEL2(c10::DeviceType::CPU, OP, OVERLOAD, POLICY)
+// KERNEL_CPU/KERNEL_DIFFERENT_REDISPATCH_SIGNATURE_CPU
+// registration (OP, POLICY) or (OP, OVERLOAD, POLICY) for AutocastCPU
+#define KERNEL_CPU(...) KERNEL(c10::DeviceType::CPU, __VA_ARGS__)
 
 #define KERNEL_DIFFERENT_REDISPATCH_SIGNATURE_CPU( \
     REDISPATCH_FUNC,                               \
@@ -603,12 +612,9 @@ copy pasted in from VariableTypeEverything.cpp with appropriate substitutions.
       REDISPATCH_SIGNATURE,                        \
       POLICY)
 
-// KERNEL_CUDA/KERNEL_CUDA2/KERNEL_DIFFERENT_REDISPATCH_SIGNATURE_CUDA
-// registration for AutocastCUDA
-#define KERNEL_CUDA(OP, POLICY) KERNEL(c10::DeviceType::CUDA, OP, POLICY)
-
-#define KERNEL_CUDA2(OP, OVERLOAD, POLICY) \
-  KERNEL2(c10::DeviceType::CUDA, OP, OVERLOAD, POLICY)
+// KERNEL_CUDA/KERNEL_DIFFERENT_REDISPATCH_SIGNATURE_CUDA
+// registration (OP, POLICY) or (OP, OVERLOAD, POLICY) for AutocastCUDA
+#define KERNEL_CUDA(...) KERNEL(c10::DeviceType::CUDA, __VA_ARGS__)
 
 #define KERNEL_DIFFERENT_REDISPATCH_SIGNATURE_CUDA( \
     REDISPATCH_FUNC,                                \
@@ -624,14 +630,28 @@ copy pasted in from VariableTypeEverything.cpp with appropriate substitutions.
       REDISPATCH_SIGNATURE,                         \
       POLICY)
 
-// KERNEL_PRIVATEUSEONE/KERNEL_PRIVATEUSEONE2/
-// KERNEL_DIFFERENT_REDISPATCH_SIGNATURE_PRIVATEUSEONE
-// registration for AutocastPrivateUse1
-#define KERNEL_PRIVATEUSEONE(OP, POLICY) \
-  KERNEL(c10::DeviceType::PrivateUse1, OP, POLICY)
+// KERNEL_XPU/KERNEL_DIFFERENT_REDISPATCH_SIGNATURE_XPU
+// registration (OP, POLICY) or (OP, OVERLOAD, POLICY) for AutocastXPU
+#define KERNEL_XPU(...) KERNEL(c10::DeviceType::XPU, __VA_ARGS__)
 
-#define KERNEL_PRIVATEUSEONE2(OP, OVERLOAD, POLICY) \
-  KERNEL2(c10::DeviceType::PrivateUse1, OP, OVERLOAD, POLICY)
+#define KERNEL_DIFFERENT_REDISPATCH_SIGNATURE_XPU( \
+    REDISPATCH_FUNC,                               \
+    REGISTER_NAME,                                 \
+    REGISTER_SIGNATURE,                            \
+    REDISPATCH_SIGNATURE,                          \
+    POLICY)                                        \
+  KERNEL_DIFFERENT_REDISPATCH_SIGNATURE(           \
+      c10::DeviceType::XPU,                        \
+      REDISPATCH_FUNC,                             \
+      REGISTER_NAME,                               \
+      REGISTER_SIGNATURE,                          \
+      REDISPATCH_SIGNATURE,                        \
+      POLICY)
+
+// KERNEL_PRIVATEUSEONE/KERNEL_DIFFERENT_REDISPATCH_SIGNATURE_PRIVATEUSEONE
+// registration (OP, POLICY) or (OP, OVERLOAD, POLICY) for AutocastPrivateUse1
+#define KERNEL_PRIVATEUSEONE(OP, ...) \
+  KERNEL(c10::DeviceType::PrivateUse1, __VA_ARGS__)
 
 #define KERNEL_DIFFERENT_REDISPATCH_SIGNATURE_PRIVATEUSEONE( \
     REDISPATCH_FUNC,                                         \
